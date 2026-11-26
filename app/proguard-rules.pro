@@ -1,0 +1,1 @@
+-keep class com.cau.campusmarket.domain.model.** { *; }
