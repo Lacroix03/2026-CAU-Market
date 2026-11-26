@@ -1,0 +1,13 @@
+rules_version = '2';
+service firebase.storage {
+ match /b/{bucket}/o {
+  match /products/{productId}/{fileName} {
+   allow read: if request.auth != null
+    && request.auth.token.email.matches('^[^@\\s]+@cau[.]ac[.]kr$')
+    && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
+    && firestore.exists(/databases/(default)/documents/products/$(productId));
+   allow write: if false;
+  }
+  match /{path=**} { allow read, write: if false; }
+ }
+}

@@ -239,12 +239,12 @@ Cloud Firestore 컬렉션 기준입니다.
 
 | 항목 | 규칙 |
 | --- | --- |
-| ID | `userId`는 Firebase Auth UID, 나머지는 Firestore 자동 생성 문서 ID |
+| ID | `userId`는 Firebase Auth UID, 나머지는 Firestore 자동 생성 문서 ID. 활성 방 잠금 키만 §11의 승인된 SHA-256 예외 사용 |
 | 가격 | 원 단위 `Int`, 무료 나눔은 `0` (화면에 ‘나눔’ 표시) |
 | 날짜·시간 | Firestore `Timestamp`로 저장, 서버 시간(`serverTimestamp`) 사용 |
 | 시간 표시 | 오늘: `오후 3:20` / 어제: `어제` / 그 이전: `11월 20일` / 다른 해: `2025.11.20` |
 | 선택 입력값 | 값이 없으면 `null`, 목록은 빈 리스트 `[]` (빈 문자열 사용 안 함) |
-| 사진 | Storage `products/{productId}/{index}.jpg`, `chats/{chatId}/{messageId}_{index}.jpg`에 업로드 후 다운로드 URL을 저장 |
+| 사진 | Storage `products/{productId}/{index}.jpg`, `chats/{chatId}/{messageId}_{index}.jpg`. 물품은 다운로드 URL, 채팅은 `gs://` 참조 저장. 채팅 사진은 `getChatImage`로 매 요청 권한 검사 |
 | 열거형 값 | 아래 대문자 영문 값으로 저장하고 화면에서 한글로 변환 |
 
 | 열거형 | 값 |
@@ -296,6 +296,8 @@ Cloud Firestore 컬렉션 기준입니다.
 | `lastMessageAt` | `Timestamp?` | | 목록 정렬 기준 |
 | `unreadCount` | `Map<String, Int>` | ✓ | 사용자별 안 읽은 수 |
 | `lastReadAt` | `Map<String, Timestamp>` | ✓ | 사용자별 마지막 읽은 시각 (읽음 표시 기준) |
+| `lastSequence` | `Long` | ✓ | 마지막 메시지 순번, 초기 0 |
+| `lastReadSequence` | `Map<String, Long>` | ✓ | 사용자별 읽음 경계, 초기 0. 같은 시각의 메시지 구별 |
 | `createdAt` | `Timestamp` | ✓ | 생성 시각 |
 
 ### `chatRooms/{chatId}/messages/{messageId}`
@@ -308,6 +310,7 @@ Cloud Firestore 컬렉션 기준입니다.
 | `text` | `String?` | | `TEXT`·`SYSTEM`일 때 |
 | `imageUrls` | `List<String>` | | `IMAGE`일 때 1~10개 |
 | `createdAt` | `Timestamp` | ✓ | 전송 시각 |
+| `sequence` | `Long` | ✓ | 방별 증가 순번, 1부터 시작 |
 
 ### 검색 방식
 
@@ -331,9 +334,9 @@ Firestore는 전문 검색을 지원하지 않으므로, 최근 등록순으로 
 | 물품 수정 | `updateProduct` | 물품 ID, 수정 정보, 사진 목록 | `Result<Unit>` |
 | 물품 삭제 | `deleteProduct` | 물품 ID | `Result<Unit>` |
 | 거래 상태 변경 | `changeProductStatus` | 물품 ID, 상태 | `Result<Unit>` |
-| 채팅방 목록 | `observeChatRooms` | — (로그인 사용자 기준) | `Flow<List<ChatRoom>>` |
+| 채팅방 목록 | `observeChatRooms` | — (로그인 사용자 기준) | `Flow<Result<List<ChatRoom>>>` |
 | 채팅방 열기 | `getOrCreateChatRoom` | 물품 ID | `Result<String>` (채팅방 ID) |
-| 메시지 수신 | `observeMessages` | 채팅방 ID | `Flow<List<Message>>` |
+| 메시지 수신 | `observeMessages` | 채팅방 ID | `Flow<Result<List<Message>>>` |
 | 텍스트 전송 | `sendMessage` | 채팅방 ID, 텍스트 | `Result<Unit>` |
 | 사진 전송 | `sendImages` | 채팅방 ID, 사진 `Uri` 목록(최대 10) | `Result<Unit>` |
 | 읽음 처리 | `markAsRead` | 채팅방 ID | `Result<Unit>` |
@@ -351,7 +354,42 @@ Firestore는 전문 검색을 지원하지 않으므로, 최근 등록순으로 
 | 디자인 | Figma |
 | 협업 | GitHub |
 
-> 세부 라이브러리와 아키텍처는 개발을 시작하며 추가합니다.
+### 승인된 개발 환경 (2026-11-25)
+
+| 항목 | 결정 |
+| --- | --- |
+| 앱 이름 | CAU Market |
+| applicationId / namespace | `com.caumarket.app` |
+| Android SDK | min 24 / compile 37 / target 37 |
+| 빌드 | Kotlin DSL, Version Catalog, AGP 9.3.3, Gradle 9.5.0 |
+| 실행 JDK | Android Studio 내장 JDK 25.0.2 |
+| Kotlin / Compose 플러그인 | 기존 2.2.10 선언 유지, 빌드로 호환성 확인 |
+| Firebase Android | BoM 34.14.0, Auth / Firestore / Storage 본체 모듈 |
+| Google Services 플러그인 | 4.6.0; 실제 앱 등록 설정이 생긴 뒤 적용 |
+| 구조 | 단일 app 모듈, Repository 분리, 생성자 주입과 수동 AppContainer |
+| 패키지 | core/model, core/error, core/validation, data/repository, data/firebase, di |
+| 작업 브랜치 | feat/backend (2026-11-26 GitHub 게시 요청 반영) |
+| 실행 환경 | Firebase Local Emulator Suite를 개발 PC에서 실행하는 과제 시연 환경 |
+| 비용 | 0원. 결제 계정 연결 및 유료 클라우드 리소스 생성은 하지 않음 |
+| 시연 연결 | Android 에뮬레이터 또는 개발 PC에 연결 가능한 같은 네트워크의 휴대폰 |
+| Firebase 계정 | 향후 클라우드 프로젝트가 필요할 때 팀 계정 사용 |
+| 클라우드 후보 | 프로젝트 ID cau-market-2026, 서울 asia-northeast3. 생성·배포되지 않은 상태 |
+
+현재 로컬에는 Android 기본 프로젝트가 있으며 GitHub main의 README 이력을 연결해 작업한다.
+Emulator 구성과 실제 클라우드 배포는 구분하며, 로컬 검증을 클라우드 배포 성공으로 보고하지 않는다.
+Coroutines 1.10.2를 사용한다. 2026-11-26 승인: Android Functions SDK 대신 기본 HttpURLConnection으로 로컬 callable 프로토콜을 호출한다. 기존 Repository 규격은 유지하고 Auth ID 토큰 및 오류 응답을 처리한다. Functions Emulator 서버는 그대로 사용한다. 서버 도구의 정확한 버전은 backend/package.json과 잠금 파일을 따른다.
+Android 17 시연용 debug 앱은 ACCESS_LOCAL_NETWORK를 선언한다(2026-11-26 승인).
+테스트에서 권한을 부여하며 실제 권한 요청 화면은 프론트엔드 담당이다.
+
+### 승인된 규격 변경
+
+- 실시간 관찰 함수는 성공·실패를 같은 스트림에서 받도록 `Flow<Result<List<ChatRoom>>>`,
+  `Flow<Result<List<Message>>>`를 사용한다. 다른 기존 함수의 결과형은 유지한다.
+- 채팅 사진은 다운로드 요청마다 로그인 사용자와 현재 채팅 참여 권한을 검사한다.
+  나간 사용자의 이후 다운로드를 거부한다. 이미 내려받은 사본은 회수할 수 없다.
+- 채팅 사진의 저장값은 `gs://` 참조, 조회는 `getChatImage(chatId, messageId, index): Result<ByteArray>`다.
+- 물품 사진의 Storage 경로와 URL 규격, 메시지 사진의 Storage 경로는 기존 규격을 유지한다.
+- 채팅 중복 방지·읽음 경쟁 조건·재시도 및 이미지 실패 복구는 §11의 승인된 보조 구조를 사용한다.
 
 ---
 
@@ -381,7 +419,7 @@ Firestore는 전문 검색을 지원하지 않으므로, 최근 등록순으로 
 | 수정 화면 진입 | 본인 물품 상세의 ‘수정’, 마이페이지 물품 항목의 ‘수정’ | 판매자가 자주 쓰는 두 경로 모두 제공 |
 | 거래 상태 변경 확인창 | 거래 완료로 바꿀 때만 표시 | 목록에서 사라지고 문의가 막히는 변경만 확인 |
 | 처분 희망 기한 | 1차 범위에 선택 입력으로 포함 | 기획 핵심(졸업·이사 물품)과 관련 있고 구현 비용이 낮음 |
-| 읽음 표시 모양 | 상대가 읽지 않은 내 메시지 옆에 ‘1’ | 사용자에게 익숙한 방식이고 `lastReadAt` 하나로 계산 가능 |
+| 읽음 표시 모양 | 상대가 읽지 않은 내 메시지 옆에 ‘1’ | `lastReadAt` 제공, 동시 메시지의 정확한 구별은 `sequence`와 `lastReadSequence` 사용 |
 | 채팅방에 머무는 동안 온 메시지 | 화면이 열려 있으면 즉시 읽음 처리 | 보고 있는 메시지가 안 읽음으로 남지 않게 함 |
 | 나가기 버튼 위치 | 채팅방 상단 ⋯ 메뉴, 실행 전 확인창 | 목록에서의 실수 조작 방지, 화면 구성이 단순 |
 | 나간 뒤 상대방 처리 | ‘상대방이 채팅방을 나갔습니다’ 안내 + 입력창 비활성화 | 받을 사람이 없는 메시지 전송을 막음 |
@@ -392,3 +430,14 @@ Firestore는 전문 검색을 지원하지 않으므로, 최근 등록순으로 
 | 일정 변경·취소 알림 | 확인창 후 채팅방 일정 안내 카드로 전달, 푸시 없음 | 푸시 알림은 구현 범위 밖 |
 | 로그아웃 | 마이페이지에서 확인창 후 로그인 화면으로 이동 | 실수 방지 |
 | 검색 구현 | 최근 물품을 불러와 앱에서 제목·설명 필터링 | Firestore 전문 검색 미지원, 프로젝트 규모에서 충분 |
+
+## 11. 승인된 백엔드 상세 규격 (2026-11-25)
+추가 DTO·Repository·보조 컬렉션·읽음 순번·이미지 접근·실패 복구는 [확정 상세 규격](docs/backend-contract.txt)을 따른다.
+실행 명령, Kotlin 호출 예시, 오류·재시도 처리는 [프론트엔드 연동 안내](docs/backend-integration.md)를 따른다.
+`activeChatKeys`, `operations`, `productAssets`는 서버 전용이며 앱의 직접 쓰기는 금지한다.
+원래 함수 호출 형태를 유지하며 재시도용 `requestId`, 읽음 경계 오버로드, `getCurrentUser`, `completeSignUp`, `getChatRoomInfo`, `getChatImage`를 추가했다.
+2차 일정 협의는 이번 구현에서 제외한다. 로컬 검증과 실제 클라우드 배포를 구분한다.
+
+2026-11-26 로컬 검증: 서버·규칙 테스트 7개, Android 단위 테스트 7개, Pixel_4(API 37) 기기 테스트 2개 통과.
+빌드·Lint 오류 없음. Auth/Firestore/Storage 내보내기·복원 확인.
+실행 명령, 수정 파일과 검증 한계는 [백엔드 검증 기록](docs/backend-verification.md)에 정리했다.

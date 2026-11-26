@@ -1,0 +1,21 @@
+rules_version = '2';
+service cloud.firestore {
+ match /databases/{database}/documents {
+  function school() {
+   return request.auth != null && request.auth.token.email is string
+    && request.auth.token.email.matches('^[^@\\s]+@cau[.]ac[.]kr$');
+  }
+  function member() { return school() && exists(/databases/$(database)/documents/users/$(request.auth.uid)); }
+  match /users/{uid} { allow read: if school() && request.auth.uid == uid; allow write: if false; }
+  match /products/{id} { allow read: if member(); allow write: if false; }
+  match /chatRooms/{chatId} {
+   allow read: if member() && request.auth.uid in resource.data.activeUserIds;
+   allow write: if false;
+   match /messages/{id} {
+    allow read: if member() && request.auth.uid in get(/databases/$(database)/documents/chatRooms/$(chatId)).data.activeUserIds;
+    allow write: if false;
+   }
+  }
+  match /{document=**} { allow read, write: if false; }
+ }
+}

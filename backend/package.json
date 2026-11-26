@@ -1,0 +1,29 @@
+{
+  "name": "cau-market-backend",
+  "private": true,
+  "version": "1.0.0",
+  "main": "lib/index.js",
+  "engines": {
+    "node": "24"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --test test/*.test.cjs"
+  },
+  "dependencies": {
+    "firebase-admin": "14.5.1",
+    "firebase-functions": "7.4.0"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "6.0.0",
+    "@types/node": "26.6.7",
+    "firebase": "13.4.0",
+    "firebase-tools": "15.37.0",
+    "typescript": "7.0.2"
+  },
+  "overrides": {
+    "@firebase/firestore": {
+      "@grpc/grpc-js": "1.14.7"
+    }
+  }
+}

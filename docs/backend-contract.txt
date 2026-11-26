@@ -1,0 +1,266 @@
+CAU Market 백엔드 추가 확정 규격 v1
+작성일: 2026-11-25
+상태: 2026-11-25 사용자 전체 승인. 아래 권장안이 확정 규격이다. 검증 결과는 별도 보고한다.
+
+이미 승인되어 적용한 내용
+- 기존 Android 프로젝트 활용, CAU Market / com.caumarket.app.
+- backend/firebase-phase1 로컬 브랜치. 커밋·푸시 없음.
+- Firebase BoM 34.14.0으로 조정. Kotlin/Compose 2.2.10 유지.
+- 관찰 함수의 결과를 Flow<Result<List<...>>>로 변경.
+- 비용 0원, 개발 PC의 Firebase Emulator로 시연.
+- 채팅 사진은 요청마다 참여 권한 확인. 나간 사람의 이후 다운로드 차단.
+- 필요 시 팀 계정 사용. 실제 Firebase 클라우드 프로젝트·결제·배포 없음.
+
+A. 실행 도구와 아키텍처
+권장안:
+- Android Repository + PC에서 실행하는 TypeScript Cloud Functions Emulator.
+- Auth, Firestore, Storage, Functions 모두 같은 로컬 demo-cau-market 프로젝트 ID 사용.
+- 실제 서비스로 우발적으로 접속하지 않도록 Emulator 전용 설정을 검사.
+- 로컬 Node는 설치된 24.22.3 사용. npm, firebase-tools, firebase-admin,
+  firebase-functions, typescript, @types/node, firebase, @firebase/rules-unit-testing을 사용.
+- 위 도구는 설치 시 Node 24에 호환되는 안정 버전을 확인하고 정확한 버전을
+  package.json/package-lock.json에 고정. 이 버전 선정 범위를 승인 대상으로 함.
+- Android는 Auth/Firestore/Storage SDK와 kotlinx-coroutines-android/play-services/test 1.10.2 사용.
+  2026-11-26 변경 승인에 따라 서버 함수 호출은 기본 HttpURLConnection으로 callable 프로토콜을 구현.
+  이전 Functions SDK 제안은 대체되며 서버 TypeScript Functions Emulator는 유지.
+- 서버 및 Security Rules 테스트는 Node 내장 node:test와 공식 rules-unit-testing 사용.
+- DI 라이브러리는 추가하지 않고 승인된 생성자 주입/AppContainer 사용.
+- 기본 포트: Auth 9099, Firestore 8080, Storage 9199, Functions 5001, UI 4000.
+- 기본 서버는 PC 내부 연결. 휴대폰 시연용 LAN 연결은 별도 실행 옵션으로 구성.
+- 데이터 export/import 실행 명령을 제공하여 PC 서버 재시작 후 시연 데이터 복구.
+대안:
+- 클라이언트가 직접 쓰는 구조는 추가 규칙 설계가 필요하고 서버에서 수행할
+  이미지 접근 검사·가입 차단·복구 작업을 별도로 해결해야 하므로 권장하지 않음.
+
+B. 사용자·사진 접근 정책
+권장안:
+- users 문서는 본인만 읽을 수 있음. 다른 사용자 이메일은 제공하지 않음.
+- 물품 목록·상세·물품 사진의 앱 접근은 로그인한 cau.ac.kr 사용자에게 허용.
+- 채팅 문서·메시지는 activeUserIds에 남아 있는 본인만 읽음.
+- 상대 닉네임·물품 요약은 참여 권한을 검사한 서버 조회로 제공.
+- 물품 사진은 기존 다운로드 URL 형식 유지.
+- 채팅 Message.imageUrls의 필드명과 List<String> 자료형은 유지하되,
+  저장값은 토큰 다운로드 URL 대신 gs://{bucket}/chats/{chatId}/{messageId}_{index}.jpg 참조로 변경.
+- 채팅 파일은 클라이언트의 Storage 직접 읽기·쓰기를 금지.
+  서버만 파일을 저장하며 공유 가능한 다운로드 토큰을 발급하지 않음.
+- getChatImage(chatId, messageId, index) 호출 때마다 서버가 Auth, 현재 참여 여부,
+  메시지에 실제 연결된 경로를 확인하고 이미지 바이트를 반환.
+- 나가기 이후의 새로운 다운로드는 거부. 이미 다운로드된 사본·스크린샷은 회수 불가.
+- 프론트엔드는 채팅 이미지를 일반 URL 로더에 직접 넘기지 않고 위 함수를 호출.
+  실제 화면 코드 변경은 이번 백엔드 작업 범위에 포함하지 않음.
+- 프로젝트의 모든 Storage 업로드는 검증하는 서버 경유를 권장.
+  Firestore·Storage 직접 쓰기는 기본 거부하고, 서버에서도 동일한 소유권·입력값 검사 수행.
+  Admin SDK가 Security Rules를 우회한다는 점을 전제로 서버 권한 테스트도 작성.
+대안:
+- 이메일 없는 공개 프로필 컬렉션을 추가하면 닉네임을 직접 조회할 수 있으나
+  데이터 중복 관리가 필요하므로 이번 안에는 포함하지 않음.
+
+C. 입력과 기본값
+권장안:
+- 닉네임·제목·설명·위치 상세·검색어는 앞뒤 공백을 제거.
+  선택 문자열이 공백뿐이면 null. 비밀번호는 절대로 trim하지 않음.
+- 글자 수는 Unicode 코드 포인트 기준. 텍스트는 NFC로 정규화.
+- 이메일은 앞뒤 공백 제거 후 소문자로 정규화하고 형식 및 정확한 cau.ac.kr 도메인 검사.
+- 비밀번호 확인은 별도 순수 검증 함수에서 검사. signUp의 입력 세 개는 유지.
+- 검색은 제목·설명의 대소문자를 구분하지 않는 부분 문자열 검색.
+  검색어 null/공백은 기본 목록으로 취급. 카테고리 null은 전체.
+- 기본 목록은 SOLD 제외, 실제 검색어가 있으면 SOLD 포함을 기본값으로 사용.
+- 처분 희망 기한은 Asia/Seoul 기준 내일부터 허용.
+  선택 날짜의 00:00:00 KST를 Timestamp로 저장. 입력 DTO의 자료형은 Timestamp? 유지.
+- 기한이 지난 기존 물품을 다른 내용만 수정할 때 기한을 그대로 두는 것은 허용.
+  새로 기한을 설정하거나 변경할 때 미래 날짜를 검사.
+- 사진은 JPEG, 최대 변 길이 1600px, 초기 품질 85, 장당 최대 2 MiB.
+  앱에서 방향 보정·리사이즈·재인코딩하며 EXIF 위치 정보를 제거.
+  서버도 크기·JPEG 형식·경로를 검증. 제한에 맞추지 못하면 입력 오류 반환.
+대안:
+- 기한에 오늘을 포함하거나 사진을 더 크게 허용하려면 해당 값만 변경 가능.
+
+D. 물품 입력 DTO와 Repository 파라미터
+제안 DTO:
+data class ProductInput(
+    val title: String,
+    val description: String?,
+    val price: Int,
+    val category: String,
+    val condition: String,
+    val place: String,
+    val placeDetail: String?,
+    val disposeBy: Timestamp?
+)
+data class ProductUpdate(
+    val input: ProductInput,
+    val expectedUpdatedAt: Timestamp
+)
+sealed interface ProductPhoto {
+    data class Existing(val url: String) : ProductPhoto
+    data class New(val uri: Uri) : ProductPhoto
+}
+data class ChatRoomInfo(
+    val opponentId: String,
+    val opponentNickname: String,
+    val product: Product?
+)
+
+- ProductUpdate.expectedUpdatedAt은 동시에 다른 기기에서 수정한 내용을 덮어쓰지 않도록 사용.
+- 기존 사진은 원래 순서대로 일부 유지/제거, 새 사진은 뒤에 추가.
+  Existing URL은 해당 물품에 실제 등록된 사진인지 검사.
+- 거래 상태는 기존 changeProductStatus 함수로 별도 변경.
+  물품 정보 저장과 상태 변경은 각각의 성공·실패 결과를 가짐.
+- ChatRoomInfo.product가 null이면 삭제된 물품으로 표시.
+  채팅방이 없거나 조회 권한이 없을 때는 null 대신 실패 반환.
+
+AuthRepository:
+suspend fun signUp(email: String, password: String, nickname: String): Result<Unit>
+suspend fun login(email: String, password: String): Result<User>
+suspend fun logout(): Result<Unit>
+suspend fun getCurrentUser(): Result<User?>
+suspend fun completeSignUp(nickname: String): Result<Unit>
+
+ProductRepository:
+suspend fun getProducts(
+    query: String? = null,
+    category: String? = null,
+    includeSold: Boolean = !query.isNullOrBlank()
+): Result<List<Product>>
+suspend fun getMyProducts(status: String? = null): Result<List<Product>>
+suspend fun getProduct(productId: String): Result<Product>
+suspend fun createProduct(
+    input: ProductInput, imageUris: List<Uri>, requestId: String? = null
+): Result<String>
+suspend fun updateProduct(
+    productId: String, update: ProductUpdate, photos: List<ProductPhoto>,
+    requestId: String? = null
+): Result<Unit>
+suspend fun deleteProduct(productId: String): Result<Unit>
+suspend fun changeProductStatus(productId: String, status: String): Result<Unit>
+
+ChatRepository:
+fun observeChatRooms(): Flow<Result<List<ChatRoom>>>
+suspend fun getOrCreateChatRoom(productId: String): Result<String>
+fun observeMessages(chatId: String): Flow<Result<List<Message>>>
+suspend fun sendMessage(chatId: String, text: String, requestId: String? = null): Result<Unit>
+suspend fun sendImages(chatId: String, imageUris: List<Uri>, requestId: String? = null): Result<Unit>
+suspend fun markAsRead(chatId: String): Result<Unit>
+suspend fun markAsRead(chatId: String, throughMessageId: String): Result<Unit>
+suspend fun leaveChatRoom(chatId: String): Result<Unit>
+suspend fun getChatRoomInfo(chatId: String): Result<ChatRoomInfo>
+suspend fun getChatImage(chatId: String, messageId: String, index: Int): Result<ByteArray>
+
+- requestId가 null인 최초 호출은 Firestore 자동 ID를 로컬에서 생성.
+  실패 결과에 같은 requestId를 제공하고 재시도는 반드시 그 ID를 재사용.
+  같은 텍스트를 사용자가 새로 보내는 경우에는 새 ID 사용.
+- 정상 저장 전에 생성·수정 시각을 임의 값으로 채운 완성 모델을 노출하지 않음.
+- 관찰 데이터는 서버에서 확인된 스냅샷을 성공 결과로 내보냄.
+  로컬 미확정 쓰기·캐시만으로 읽음 처리하지 않음.
+- 화면이 열린 상태에서 메시지 성공 결과를 받았을 때 throughMessageId 오버로드 사용 권장.
+  기존 markAsRead(chatId)는 그 Repository가 마지막으로 전달한 서버 확인 스냅샷을 사용.
+  해당 스냅샷이 없으면 실패. 화면이 닫히면 관찰 취소와 읽음 호출 중단은 프론트엔드 책임.
+- Flow의 치명적 리스너 오류는 Result.failure 1회 후 종료. 재시도는 재구독.
+  코루틴 취소는 오류 결과로 감싸지 않고 전파.
+
+E. 추가 저장 구조와 동시성
+기존 users/products 필드와 기존 열거형 저장값은 유지.
+
+추가 컬렉션 1:
+activeChatKeys/{sha256(productId + 구분자 + buyerId)}
+- productId: String
+- buyerId: String
+- chatId: String
+- updatedAt: Timestamp
+목적: 같은 물품·구매자의 활성 방을 한 트랜잭션에서 잠금.
+이 보조 문서 ID만 결정적 ID 예외. 실제 chatId는 계속 Firestore 자동 ID.
+이 문서는 클라이언트 접근 금지.
+방 생성 시 기존 활성 방을 먼저 반환. 새 방은 물품 존재·상태·타인 판매 여부 확인.
+나갈 때 이 문서가 해당 chatId를 가리키는 경우에만 제거.
+
+chatRooms 추가 필드:
+- lastSequence: Long, 초기 0
+- lastReadSequence: Map<String, Long>, sellerId/buyerId 각각 초기 0
+기존 unreadCount: sellerId/buyerId 각각 초기 0
+기존 lastReadAt: 초기 빈 Map
+기존 activeUserIds: sellerId와 buyerId
+기존 lastMessage / lastMessageAt: 초기 null
+
+messages 추가 필드:
+- sequence: Long, 방마다 1부터 단조 증가, SYSTEM에도 부여
+
+읽음:
+- 전송은 메시지 생성·sequence 할당·마지막 메시지·상대 unreadCount 증가를 함께 커밋.
+- 읽음은 지정한 메시지 sequence까지의 수신 메시지만 반영.
+  방 문서를 트랜잭션에 포함해 전송·동시 읽음이 경쟁하면 재시도.
+- lastReadSequence는 감소 금지. lastReadAt은 읽은 경계 메시지의 서버 createdAt을 저장.
+  현재 시각을 넣어 아직 조회하지 않은 메시지를 읽은 것으로 만들지 않음.
+- 동률 Timestamp까지 정확히 표시하려면 프론트엔드는 메시지 sequence와
+  상대 lastReadSequence를 비교. lastReadAt도 기존 요구대로 함께 제공.
+- SYSTEM은 미확인 개수와 내 메시지의 '1' 표시 대상에서 제외.
+- 메시지 없는 방의 정렬 시각은 createdAt, 그 외는 lastMessageAt.
+  동률이면 chatId로 순서를 고정.
+
+추가 컬렉션 2:
+operations/{operationId} (Firestore 자동 ID)
+- operationId: String
+- ownerId: String
+- kind: String (PRODUCT_CREATE / PRODUCT_UPDATE / PRODUCT_DELETE / TEXT_SEND / IMAGE_SEND)
+- targetPath: String
+- payloadHash: String
+- imagePaths: List<String>
+- state: String (PREPARED / COMMITTED / CLEANUP_REQUIRED / ABORTED)
+- createdAt: Timestamp
+- updatedAt: Timestamp
+목적: 재시도 중 중복 저장 방지, 업로드 파일 소유·사용처 기록, 실패 복구.
+서버만 접근. 같은 ID에 다른 내용이나 다른 사용자가 요청하면 거부.
+완료 기록은 과제 기간 동안 보관해 오래된 재시도도 중복 생성하지 않음.
+미완료 업로드는 24시간 후 만료·정리 대상. 개인정보/원문 메시지는 저장하지 않음.
+필요한 재시도 원문·사진은 앱 내부 저장소에 임시 저장, 성공·취소·로그아웃 때 정리.
+민감 비밀번호는 임시 저장하거나 로그에 기록하지 않음.
+
+추가 컬렉션 3:
+productAssets/{productId} (기존 자동 생성 productId 재사용)
+- sellerId: String
+- nextImageIndex: Int, 초기 0
+목적: 물품 문서 생성 전에 업로드 소유권·파일 번호 예약.
+서버만 접근. 트랜잭션에서 번호를 증가시켜 같은 경로 덮어쓰기 방지.
+제품 파일명의 index는 재사용하지 않는 업로드 번호이며 현재 배열 위치가 아님.
+삭제 시 파일 번호를 다시 매기지 않고 imageUrls 배열 순서로 대표 사진을 정함.
+
+F. 가입·삭제·실패 처리
+- 가입 전 차단 함수에서 학교 도메인을 검증하고 데이터 접근에서도 다시 검사.
+  Emulator에서의 검증 결과와 실제 Identity Platform 배포 결과는 구분.
+- Auth 가입 후 users 작성까지 성공하면 로그아웃하고 signUp 성공 반환.
+- 프로필 작성 실패 시 Auth 계정 삭제를 시도.
+  네트워크 때문에 롤백까지 실패한 경우 INCOMPLETE_PROFILE 반환.
+  이후 로그인한 사용자에게 completeSignUp(nickname)으로 가입 마무리 가능하게 제공.
+  users 문서가 없는 계정에는 거래 기능 접근 거부.
+- 물품은 실제 문서 삭제. 연결된 채팅과 채팅 이미지는 유지.
+  기존 채팅의 전송도 양쪽 참여 중이면 계속 가능.
+- 물품 사진은 DB 삭제/갱신 확정 후 정리. 정리에 실패해도 물품 삭제를 되돌리지 않고
+  operations에 CLEANUP_REQUIRED 기록 후 재처리.
+- PC 서버 시작 시와 로컬 정리 명령에서 만료 업로드·삭제 대기 파일을 재처리.
+  유료 스케줄러나 자동 클라우드 리소스는 추가하지 않음.
+- 나가기는 최초 두 명 참여 상태에서 한 명이 나갈 때 SYSTEM 메시지 1개 생성.
+  같은 나가기 재시도나 남은 사람이 나갈 때 안내를 중복 생성하지 않음.
+  SYSTEM senderId는 system, text는 '상대방이 채팅방을 나갔습니다'.
+  사용자 입력으로 SYSTEM 생성 금지.
+
+오류 제안:
+MarketException(code: MarketErrorCode, field: String?, operationId: String?, retryable: Boolean)
+MarketErrorCode:
+VALIDATION, AUTH_REQUIRED, INVALID_CREDENTIALS, EMAIL_ALREADY_USED, INCOMPLETE_PROFILE,
+PERMISSION_DENIED, NOT_FOUND, CONFLICT, NETWORK, QUOTA_EXCEEDED, UNKNOWN.
+예상 가능한 실패는 Result.failure(MarketException)로 반환.
+사용자에게 민감한 내부 오류·이메일/비밀번호·토큰·전체 파일 URL을 로그로 노출하지 않음.
+
+G. 검증·범위
+- Kotlin 입력 경계값, DTO 매핑, Repository 오류·취소·재시도 테스트.
+- 규칙 테스트는 익명/학교외계정/타인/참여자/나간 사용자로 직접 SDK 접근 시도.
+- 서버 API 테스트는 같은 권한 우회·요청 변조·타인 이미지·SYSTEM 위조를 시도.
+- 같은 물품·구매자의 동시 방 생성, 같은 요청 ID의 동시 전송, 읽음/전송 경합 검증.
+- SOLD/복구/삭제/나가기/새 방 생성과 이미지 일부 업로드 실패·복구 검증.
+- 채팅 이미지의 저장된 gs 참조로 직접 접근·토큰 URL 발급 시도가 실패하는지 검증.
+- 모든 테스트는 demo 프로젝트와 Emulator 호스트가 설정되지 않으면 실행 거부.
+- 클라우드 배포, 결제 연결, Git 커밋·푸시는 이 승인안에 포함하지 않음.
+
+승인 이력
+2026-11-25: 사용자 전체 승인. README에 먼저 반영한 후 구현.
+2026-11-26: Android 17 debug 로컬 네트워크 권한 선언 및 테스트 권한 부여 승인.
+2026-11-26: Android Functions SDK의 필수 IID 의존성 문제로 기본 HTTP callable 호출로 변경 승인. Auth/Firestore/Storage SDK와 서버 Functions Emulator 유지.
